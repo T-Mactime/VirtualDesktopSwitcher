@@ -204,6 +204,9 @@ bool VirtualDesktopSwitcher::ActivateTopWindowOnMonitor(HMONITOR hMon) {
     for (int retry = 0; retry < 3; ++retry) {
         ActivateWindow(hwnd);
         if (GetForegroundWindow() == hwnd) {
+            INPUT input{.type = INPUT_MOUSE,
+                        .mi   = {.dwFlags = MOUSEEVENTF_MOVE}};
+            SendInput(1, &input, sizeof(input));
             Log(L"[DEBUG] ActivateTopWindowOnMonitor: " + GetWindowTitle(hwnd));
             return true;
         }
