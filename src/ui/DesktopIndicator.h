@@ -13,6 +13,13 @@
 #include "core/IndicatorConfig.h"
 #include "util/Utils.h"
 
+enum class AnchorX : std::uint8_t { Left   = 0,
+                                    Center = 1,
+                                    Right  = 2 };
+enum class AnchorY : std::uint8_t { Top    = 0,
+                                    Center = 1,
+                                    Bottom = 2 };
+
 class FontRenderer;
 
 enum class TaskbarSide : std::uint8_t { Right,
@@ -32,8 +39,9 @@ struct MonitorLayer {
     int                  dpi{};     // LOGPIXELSY
     bool                 isPrimary     = false;
     bool                 bgSampleValid = false;
-    double               bgLch_L       = -1.0;             // CIE L* (-1 = uninitialized)
-    double               bgLch_C       = 0.0;              // CIE C* (chroma)
+    POINT                anchorPos{};                      // current absolute screen position (resolved from ratio)
+    double               bgLch_L = -1.0;                   // CIE L* (-1 = uninitialized)
+    double               bgLch_C = 0.0;                    // CIE C* (chroma)
     std::array<float, 5> smoothV{};                        // per-color smoothed V
     std::array<float, 5> smoothS{};                        // per-color smoothed S
     std::array<float, 9> symbolScales{};                   // per-symbol dock scale (lerped)
@@ -101,6 +109,8 @@ private:
     bool                           m_draggingWindow    = false;
     bool                           m_isTaskbarEmbedded = false;
     bool                           m_dragOverlayActive = false;
+    AnchorX                        m_anchorX           = AnchorX::Center;
+    AnchorY                        m_anchorY           = AnchorY::Top;
 
     void               ApplyShowMode(ShowMode mode);
     void               SampleBackground();
@@ -122,6 +132,7 @@ private:
     void               RegisterMouseWheelInput();
     bool               HandleRawInput(HWND hwnd, LPARAM lp);
     bool               HandleDragStart(HWND hwnd, LPARAM lp);
+    SIZE               MeasureContent(int dpi) const;
 
     // Taskbar embed helpers
     static void InstallTrayHook();

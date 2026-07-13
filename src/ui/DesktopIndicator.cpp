@@ -58,12 +58,12 @@ BOOL CALLBACK EnumMonitorCB(HMONITOR hMon, HDC /*unused*/, LPRECT /*unused*/, LP
 
 std::wstring BuildSpacedText(const std::wstring &text, int spacing) {
     if (spacing <= 0 || text.empty()) { return text; }
-    std::wstring spacedtext;
+    std::wstring spacedText;
     for (size_t i = 0; i < text.size(); ++i) {
-        spacedtext += text[i];
-        if (i < text.size() - 1) { spacedtext.append(spacing, L' '); }
+        spacedText += text[i];
+        if (i < text.size() - 1) { spacedText.append(spacing, L' '); }
     }
-    return spacedtext;
+    return spacedText;
 }
 
 POINT CalcPresetPos(int preset, RECT mon, RECT work, int w, int h) {
@@ -78,6 +78,66 @@ POINT CalcPresetPos(int preset, RECT mon, RECT work, int w, int h) {
     case 6: return {mon.left + monW - w, work.bottom - h + 4};
     default: return {mon.left + (monW - w) / 2, mon.top - 4};
     }
+}
+
+int RatioToX(const RECT &mon, float ratio, AnchorX anchor, int w) {
+    float base = static_cast<float>(mon.left) + static_cast<float>(mon.right - mon.left) * ratio;
+    if (anchor == AnchorX::Left) { return static_cast<int>(base); }
+    if (anchor == AnchorX::Right) { return static_cast<int>(base) - w; }
+    return static_cast<int>(base) - w / 2;
+}
+
+int RatioToY(const RECT &work, float ratio, AnchorY anchor, int h) {
+    float base = static_cast<float>(work.top) + static_cast<float>(work.bottom - work.top) * ratio;
+    if (anchor == AnchorY::Top) { return static_cast<int>(base); }
+    if (anchor == AnchorY::Bottom) { return static_cast<int>(base) - h; }
+    return static_cast<int>(base) - h / 2;
+}
+
+float XToRatio(const RECT &mon, int x, AnchorX anchor, int w) {
+    int mw = mon.right - mon.left;
+    if (mw <= 0) { return 0.5f; }
+    auto cx = static_cast<float>(x);
+    if (anchor == AnchorX::Left) {
+    } else if (anchor == AnchorX::Right) {
+        cx += static_cast<float>(w);
+    } else {
+        cx += static_cast<float>(w) * 0.5f;
+    }
+    return (cx - static_cast<float>(mon.left)) / static_cast<float>(mw);
+}
+
+float YToRatio(const RECT &work, int y, AnchorY anchor, int h) {
+    int wh = work.bottom - work.top;
+    if (wh <= 0) { return 0.0f; }
+    auto cy = static_cast<float>(y);
+    if (anchor == AnchorY::Top) {
+    } else if (anchor == AnchorY::Bottom) {
+        cy += static_cast<float>(h);
+    } else {
+        cy += static_cast<float>(h) * 0.5f;
+    }
+    return (cy - static_cast<float>(work.top)) / static_cast<float>(wh);
+}
+
+AnchorX DetectAnchorX(const RECT &mon, int x, int w) {
+    int mw = mon.right - mon.left;
+    int cx = x + w / 2;
+    int t1 = mon.left + mw / 3;
+    int t2 = mon.right - mw / 3;
+    if (cx <= t1) { return AnchorX::Left; }
+    if (cx >= t2) { return AnchorX::Right; }
+    return AnchorX::Center;
+}
+
+AnchorY DetectAnchorY(const RECT &work, int y, int h) {
+    int wh = work.bottom - work.top;
+    int cy = y + h / 2;
+    int t1 = work.top + wh / 3;
+    int t2 = work.bottom - wh / 3;
+    if (cy <= t1) { return AnchorY::Top; }
+    if (cy >= t2) { return AnchorY::Bottom; }
+    return AnchorY::Center;
 }
 
 void ApplyContrastAdaptation(MonitorLayer &layer, size_t colorIdx, float &v, float &s) {
@@ -389,29 +449,17 @@ bool DesktopIndicator::Initialize(HINSTANCE hInstance) {
     Log(L"[INFO] DesktopIndicator initialized: " + std::to_wstring(m_layers.size()) + L" layers");
 
     // 4. Restore or calculate default window positions
-    if (m_pCfg->posInitialized && !m_layers.empty()) {
-        if (m_pCfg->positionPreset < PositionPreset::Count) {
-            SetPositionPreset(m_pCfg->positionPreset);
-        } else {
-            for (auto &l : m_layers) {
-                POINT pos = {m_pCfg->windowPos.x + (l.monitor.left - m_layers[0].monitor.left),
-                             m_pCfg->windowPos.y + (l.monitor.top - m_layers[0].monitor.top)};
-                SetWindowPos(l.hwnd, nullptr, pos.x, pos.y, 0, 0,
-                             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-        }
-    }
-    if (!m_pCfg->posInitialized && !m_layers.empty()) {
-        if (m_pCfg->positionPreset < PositionPreset::Count) {
-            SetPositionPreset(m_pCfg->positionPreset);
-        } else {
-            int  fs                = MulDiv(m_pCfg->fontSize, m_layers[0].dpi, 96);
-            auto spacedtext        = BuildSpacedText(m_text, m_pCfg->charSpacing);
-            auto size              = m_renderer->Measure(spacedtext.c_str(), fs);
-            int  w                 = std::max(static_cast<int>(size.cx) + kPadding * 2, kMinWidth);
-            m_pCfg->windowPos.x    = m_layers[0].monitor.left + (m_layers[0].monitor.right - m_layers[0].monitor.left - w) / 2;
-            m_pCfg->windowPos.y    = m_layers[0].monitor.top - 4;
-            m_pCfg->posInitialized = true;
+    if (m_pCfg->positionPreset < PositionPreset::Count) {
+        SetPositionPreset(m_pCfg->positionPreset);
+    } else {
+        for (auto &l : m_layers) {
+            SIZE sz     = MeasureContent(l.dpi);
+            int  w      = sz.cx;
+            int  h      = sz.cy;
+            l.anchorPos = {RatioToX(l.monitor, m_pCfg->windowRatio.x, m_anchorX, w),
+                           RatioToY(l.work, m_pCfg->windowRatio.y, m_anchorY, h)};
+            SetWindowPos(l.hwnd, nullptr, l.anchorPos.x, l.anchorPos.y, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 
@@ -523,11 +571,11 @@ void DesktopIndicator::RebuildText() {
     m_text = text;
 
     if (m_isTaskbarEmbedded && m_renderer != nullptr) {
-        auto spacedtext = BuildSpacedText(m_text, m_pCfg->charSpacing);
+        auto spacedText = BuildSpacedText(m_text, m_pCfg->charSpacing);
         for (auto &l : m_layers) {
             if (!l.hasTaskbar || l.taskbarHwnd == nullptr) { continue; }
             int  fs   = MulDiv(m_pCfg->fontSize, l.dpi, 96);
-            auto size = m_renderer->Measure(spacedtext.c_str(), fs);
+            auto size = m_renderer->Measure(spacedText.c_str(), fs);
             int  w    = std::max(static_cast<int>(size.cx) + kPadding * 2, kMinWidth);
             int  h    = std::max(static_cast<int>(size.cy) + kPadding * 2, kMinHeight);
             PositionInTaskbar(l, l.taskbarHwnd, w, h, l.taskbarSide);
@@ -535,6 +583,14 @@ void DesktopIndicator::RebuildText() {
     }
 
     Render();
+}
+
+SIZE DesktopIndicator::MeasureContent(int dpi) const {
+    auto spacedText = BuildSpacedText(m_text, m_pCfg->charSpacing);
+    int  fs         = MulDiv(m_pCfg->fontSize, dpi, 96);
+    auto size       = m_renderer->Measure(spacedText.c_str(), fs);
+    return {std::max(static_cast<int>(size.cx) + kPadding * 2, kMinWidth),
+            std::max(static_cast<int>(size.cy) + kPadding * 2, kMinHeight)};
 }
 
 void DesktopIndicator::SetColor(const std::wstring &hexColor) {
@@ -625,7 +681,6 @@ void DesktopIndicator::SetPositionPreset(PositionPreset preset) {
     bool willEmbed   = (preset == PositionPreset::EmbedTaskbarRight || preset == PositionPreset::EmbedTaskbarLeft);
 
     m_pCfg->positionPreset = preset;
-    m_pCfg->posInitialized = true;
     if (m_editMode) { SetEditMode(false); }
 
     if (wasEmbedded != willEmbed) {
@@ -645,14 +700,12 @@ void DesktopIndicator::ApplyPresetPosition(PositionPreset preset) {
     if (m_pCfg == nullptr || m_renderer == nullptr) { return; }
     if (preset >= PositionPreset::Count) { return; }
 
-    bool isEmbed    = (preset == PositionPreset::EmbedTaskbarRight || preset == PositionPreset::EmbedTaskbarLeft);
-    auto spacedtext = BuildSpacedText(m_text, m_pCfg->charSpacing);
+    bool isEmbed = (preset == PositionPreset::EmbedTaskbarRight || preset == PositionPreset::EmbedTaskbarLeft);
 
     for (auto &l : m_layers) {
-        int  fs   = MulDiv(m_pCfg->fontSize, l.dpi, 96);
-        auto size = m_renderer->Measure(spacedtext.c_str(), fs);
-        int  w    = std::max(static_cast<int>(size.cx) + kPadding * 2, kMinWidth);
-        int  h    = std::max(static_cast<int>(size.cy) + kPadding * 2, kMinHeight);
+        SIZE sz = MeasureContent(l.dpi);
+        int  w  = sz.cx;
+        int  h  = sz.cy;
 
         if (isEmbed) {
             TaskbarSide side = (preset == PositionPreset::EmbedTaskbarRight) ? TaskbarSide::Right : TaskbarSide::Left;
@@ -660,7 +713,11 @@ void DesktopIndicator::ApplyPresetPosition(PositionPreset preset) {
         } else {
             l.hasTaskbar = false;
             POINT pos    = CalcPresetPos(static_cast<int>(preset), l.monitor, l.work, w, h);
-            if (&l == m_layers.data()) { m_pCfg->windowPos = pos; }
+            l.anchorPos  = pos;
+            if (&l == m_layers.data()) {
+                m_pCfg->windowRatio.x = XToRatio(l.monitor, pos.x, AnchorX::Left, w);
+                m_pCfg->windowRatio.y = YToRatio(l.work, pos.y, AnchorY::Top, h);
+            }
             SetWindowPos(l.hwnd, nullptr, pos.x, pos.y, 0, 0,
                          SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
@@ -723,14 +780,19 @@ void DesktopIndicator::MoveByDelta(int dx, int dy) {
     for (auto &l : m_layers) {
         RECT r;
         GetWindowRect(l.hwnd, &r);
+        l.anchorPos = {r.left + dx, r.top + dy};
         if (&l == m_layers.data()) {
-            m_pCfg->windowPos.x = r.left + dx;
-            m_pCfg->windowPos.y = r.top + dy;
+            SIZE sz               = MeasureContent(l.dpi);
+            int  w                = sz.cx;
+            int  h                = sz.cy;
+            m_anchorX             = DetectAnchorX(l.monitor, l.anchorPos.x, w);
+            m_anchorY             = DetectAnchorY(l.work, l.anchorPos.y, h);
+            m_pCfg->windowRatio.x = XToRatio(l.monitor, l.anchorPos.x, m_anchorX, w);
+            m_pCfg->windowRatio.y = YToRatio(l.work, l.anchorPos.y, m_anchorY, h);
         }
-        SetWindowPos(l.hwnd, nullptr, r.left + dx, r.top + dy, 0, 0,
+        SetWindowPos(l.hwnd, nullptr, l.anchorPos.x, l.anchorPos.y, 0, 0,
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
-    m_pCfg->posInitialized = true;
     m_pCfg->positionPreset = PositionPreset::Custom;
 }
 
@@ -897,8 +959,8 @@ void DesktopIndicator::PresentLayer(MonitorLayer        &layer,
     if (m_isTaskbarEmbedded && layer.hasTaskbar) {
         UpdateLayeredWindow(layer.hwnd, hdcScreen, nullptr, &size, hdcMem, &src, 0, &blend, ULW_ALPHA);
     } else {
-        int anchorX = m_pCfg->windowPos.x + (layer.monitor.left - m_layers[0].monitor.left);
-        int anchorY = m_pCfg->windowPos.y + (layer.monitor.top - m_layers[0].monitor.top);
+        int anchorX = layer.anchorPos.x;
+        int anchorY = layer.anchorPos.y;
         int cx      = anchorX - (w - centerW) / 2;
         cx          = std::clamp(cx, static_cast<int>(layer.monitor.left), static_cast<int>(layer.monitor.right - w));
         POINT pos   = {cx, anchorY};
@@ -958,7 +1020,6 @@ void DesktopIndicator::Render() {
 void DesktopIndicator::Rebuild() {
     Log(L"[INFO] Rebuild: " + std::to_wstring(m_layers.size()) + L" layers before");
     PositionPreset savedPreset = (m_pCfg != nullptr) ? m_pCfg->positionPreset : PositionPreset::Custom;
-    POINT          savedWndPos = (m_pCfg != nullptr) ? m_pCfg->windowPos : POINT{0, 0};
     bool           wasVisible  = false;
     for (auto &l : m_layers) {
         if (IsWindowVisible(l.hwnd) != 0) { wasVisible = true; }
@@ -978,12 +1039,14 @@ void DesktopIndicator::Rebuild() {
     if (savedPreset < PositionPreset::Count) {
         if (m_pCfg != nullptr) { m_pCfg->positionPreset = savedPreset; }
         ApplyPresetPosition(savedPreset);
-    } else if (m_pCfg != nullptr && m_pCfg->posInitialized) {
-        m_pCfg->windowPos = savedWndPos;
+    } else {
         for (auto &l : m_layers) {
-            POINT pos = {savedWndPos.x + (l.monitor.left - m_layers[0].monitor.left),
-                         savedWndPos.y + (l.monitor.top - m_layers[0].monitor.top)};
-            SetWindowPos(l.hwnd, nullptr, pos.x, pos.y, 0, 0,
+            SIZE sz     = MeasureContent(l.dpi);
+            int  w      = sz.cx;
+            int  h      = sz.cy;
+            l.anchorPos = {RatioToX(l.monitor, m_pCfg->windowRatio.x, m_anchorX, w),
+                           RatioToY(l.work, m_pCfg->windowRatio.y, m_anchorY, h)};
+            SetWindowPos(l.hwnd, nullptr, l.anchorPos.x, l.anchorPos.y, 0, 0,
                          SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
         if (wasVisible) {
@@ -1064,8 +1127,8 @@ bool DesktopIndicator::HandleDragStart(HWND hwnd, LPARAM lp) {
                                    });
     if (it == m_layers.end()) { return true; }
 
-    int winLeft    = m_pCfg->windowPos.x + (it->monitor.left - m_layers[0].monitor.left);
-    int winTop     = m_pCfg->windowPos.y + (it->monitor.top - m_layers[0].monitor.top);
+    int winLeft    = it->anchorPos.x;
+    int winTop     = it->anchorPos.y;
     m_dragOffset.x = pt.x - winLeft;
     m_dragOffset.y = pt.y - winTop;
     m_dragging     = true;
@@ -1103,13 +1166,21 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         if (m_dragging && ((wp & MK_LBUTTON) != 0u)) {
             POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ClientToScreen(hwnd, &pt);
-            m_pCfg->windowPos.x = pt.x - m_dragOffset.x;
-            m_pCfg->windowPos.y = pt.y - m_dragOffset.y;
+            SIZE sz0              = MeasureContent(m_layers[0].dpi);
+            int  w0               = sz0.cx;
+            int  h0               = sz0.cy;
+            m_anchorX             = DetectAnchorX(m_layers[0].monitor, pt.x - m_dragOffset.x, w0);
+            m_anchorY             = DetectAnchorY(m_layers[0].work, pt.y - m_dragOffset.y, h0);
+            m_pCfg->windowRatio.x = XToRatio(m_layers[0].monitor, pt.x - m_dragOffset.x, m_anchorX, w0);
+            m_pCfg->windowRatio.y = YToRatio(m_layers[0].work, pt.y - m_dragOffset.y, m_anchorY, h0);
             for (auto &l : m_layers) {
-                SetWindowPos(l.hwnd, nullptr,
-                             m_pCfg->windowPos.x + (l.monitor.left - m_layers[0].monitor.left),
-                             m_pCfg->windowPos.y + (l.monitor.top - m_layers[0].monitor.top),
-                             0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                SIZE sz     = MeasureContent(l.dpi);
+                int  w      = sz.cx;
+                int  h      = sz.cy;
+                l.anchorPos = {RatioToX(l.monitor, m_pCfg->windowRatio.x, m_anchorX, w),
+                               RatioToY(l.work, m_pCfg->windowRatio.y, m_anchorY, h)};
+                SetWindowPos(l.hwnd, nullptr, l.anchorPos.x, l.anchorPos.y, 0, 0,
+                             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
         }
         return 0;

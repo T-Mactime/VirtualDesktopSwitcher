@@ -30,6 +30,11 @@ enum class DragSwitchMode : std::uint8_t {
     Count  = 4
 };
 
+struct WindowRatio {
+    float x = 0.5f;
+    float y = 0.0f;
+};
+
 struct IndicatorConfig {
     std::wstring   textColor      = L"#FFA745_#FE869F_#EF7AC8_#A083ED_#43AEFF";
     std::wstring   fontName       = L"Segoe UI Symbol";
@@ -38,8 +43,7 @@ struct IndicatorConfig {
     std::wstring   currentSymbol  = L"\u25C9";
     std::wstring   otherSymbol    = L"\u25CB";
     std::wstring   emptySymbol    = L"\u25CC";
-    POINT          windowPos      = {};
-    bool           posInitialized = false;
+    WindowRatio    windowRatio    = {};
     PositionPreset positionPreset = PositionPreset::Custom;
     ShowMode       showMode       = ShowMode::AlwaysShow;
     int            animMode       = 1;

@@ -65,6 +65,18 @@ void WriteIniInt(const std::wstring &section, const std::wstring &key, int value
     WritePrivateProfileStringW(nullptr, nullptr, nullptr, path.c_str());
 }
 
+float ReadIniFloat(const std::wstring &section, const std::wstring &key, float defaultVal) {
+    std::wstring str = ReadIniString(section, key, L"");
+    if (str.empty()) { return defaultVal; }
+    wchar_t *end = nullptr;
+    float    val = wcstof(str.c_str(), &end);
+    return (end != str.c_str()) ? val : defaultVal;
+}
+
+void WriteIniFloat(const std::wstring &section, const std::wstring &key, float value) {
+    WriteIniString(section, key, std::to_wstring(value));
+}
+
 std::wstring EncodeSymbol(const std::wstring &sym) {
     if (sym.empty()) {
         return {};

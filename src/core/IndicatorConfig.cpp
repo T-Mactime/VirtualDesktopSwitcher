@@ -6,12 +6,8 @@ void IndicatorConfig::LoadFromIni() {
     std::wstring color = ReadIniString(L"Display", L"TextColor", L"#FFA745_#FE869F_#EF7AC8_#A083ED_#43AEFF");
     if (!color.empty()) { textColor = color; }
 
-    int x = ReadIniInt(L"Display", L"WindowPosX", -1);
-    int y = ReadIniInt(L"Display", L"WindowPosY", -1);
-    if (x >= 0 && y >= 0) {
-        windowPos      = {x, y};
-        posInitialized = true;
-    }
+    windowRatio.x = ReadIniFloat(L"Display", L"WindowRatioX", windowRatio.x);
+    windowRatio.y = ReadIniFloat(L"Display", L"WindowRatioY", windowRatio.y);
 
     int fs = ReadIniInt(L"Display", L"FontSize", 20);
     if (fs > 0) { fontSize = fs; }
@@ -42,8 +38,8 @@ void IndicatorConfig::LoadFromIni() {
 
 void IndicatorConfig::SaveToIni() const {
     WriteIniString(L"Display", L"TextColor", textColor);
-    WriteIniInt(L"Display", L"WindowPosX", windowPos.x);
-    WriteIniInt(L"Display", L"WindowPosY", windowPos.y);
+    WriteIniFloat(L"Display", L"WindowRatioX", windowRatio.x);
+    WriteIniFloat(L"Display", L"WindowRatioY", windowRatio.y);
     WriteIniInt(L"Display", L"FontSize", fontSize);
     WriteIniString(L"Display", L"CurrentSymbol", EncodeSymbol(currentSymbol));
     WriteIniString(L"Display", L"OtherSymbol", EncodeSymbol(otherSymbol));
