@@ -243,7 +243,7 @@ void Application::LoadConfiguration() {
         static_cast<uint8_t>(ReadIniInt(L"General", L"PrevDesktopKey", VK_OEM_3)));
     VirtualDesktopSwitcher::SetPinAllDesktopsKey(
         static_cast<uint8_t>(ReadIniInt(L"General", L"PinAllDesktopsKey", 'D')));
-    for (int i = 0; i < static_cast<int>(kMaxDesktops); ++i) {
+    for (int i = 0; i < kMaxDesktops; ++i) {
         std::wstring keyName = L"DesktopKey" + std::to_wstring(i + 1);
         VirtualDesktopSwitcher::SetDesktopKey(i,
                                               static_cast<uint8_t>(ReadIniInt(L"General", keyName, '1' + i)));
@@ -409,6 +409,8 @@ void Application::SyncDesktopState() {
         m_pTrayIcon->UpdateTooltip(BuildTooltipText(desktopCount, currentDesktop));
         if (m_pOverlay) { m_pOverlay->ShowTemporarily(); }
     }
+
+    m_pTrayIcon->UpdateTrayIcon(currentDesktop + 1);
 
     if (m_pOverlay) {
         auto emptyMask = m_switcher->GetDesktopEmptyMask();
