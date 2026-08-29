@@ -5,6 +5,7 @@
 #include <shellapi.h>
 
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "core/IndicatorConfig.h"
@@ -14,6 +15,8 @@ constexpr UINT WM_TRAY_LANG_CHINESE   = WM_USER + 50;
 constexpr UINT WM_TRAY_LANG_ENGLISH   = WM_USER + 51;
 constexpr UINT CMD_COLOR_OPTIONS_BASE = WM_USER + 100;
 
+class GdiplusGuard;
+
 class TrayIcon {
 public:
     TrayIcon(const TrayIcon &)            = delete;
@@ -21,7 +24,7 @@ public:
     TrayIcon(TrayIcon &&)                 = delete;
     TrayIcon &operator=(TrayIcon &&)      = delete;
 
-    TrayIcon() = default;
+    TrayIcon();
     ~TrayIcon();
 
     bool Initialize(HWND hwnd, HINSTANCE hInstance);
@@ -42,12 +45,13 @@ public:
     void SetDragSwitchModeCallback(std::function<void(int)> cb) { m_dragModeFn = std::move(cb); }
 
 private:
-    NOTIFYICONDATAW m_nid{};
-    HMENU           m_hMenu                = nullptr;
-    bool            m_autoStartEnabled     = false;
-    PositionPreset  m_activePositionPreset = PositionPreset::TopCenter;
-    int             m_menuAveWidth         = 6;
-    int             m_dpi                  = 96;
+    NOTIFYICONDATAW               m_nid{};
+    std::unique_ptr<GdiplusGuard> m_gdiplus;
+    HMENU                         m_hMenu                = nullptr;
+    bool                          m_autoStartEnabled     = false;
+    PositionPreset                m_activePositionPreset = PositionPreset::TopCenter;
+    int                           m_menuAveWidth         = 6;
+    int                           m_dpi                  = 96;
 
     std::function<void(const std::wstring &)> m_colorFn;
     std::function<void()>                     m_editModeFn;
