@@ -135,6 +135,10 @@ int VirtualDesktopSwitcher::GetCurrentDesktopIndex() const {
     return m_pVDeskHelper ? m_pVDeskHelper->GetCurrentDesktopIndex() : -1;
 }
 
+std::wstring VirtualDesktopSwitcher::GetCurrentDesktopName() const {
+    return m_pVDeskHelper ? m_pVDeskHelper->GetCurrentDesktopName() : std::wstring{};
+}
+
 std::array<bool, kMaxDesktops> VirtualDesktopSwitcher::GetDesktopEmptyMask() const {
     return m_pVDeskHelper ? m_pVDeskHelper->GetDesktopEmptyMask() : std::array<bool, kMaxDesktops>{};
 }

@@ -344,6 +344,9 @@ void Application::SetupTrayCallbacks() {
     m_pTrayIcon->SetAutoFocusCallback([this](bool on) {
         m_mouseFocus->SetEnabled(on);
     });
+    m_pTrayIcon->SetDisplayModeCallback([this](int mode) {
+        if (m_pOverlay) { m_pOverlay->SetDisplayMode(static_cast<IndicatorDisplayMode>(mode)); }
+    });
 }
 
 bool Application::Initialize() {
@@ -393,6 +396,7 @@ bool Application::Initialize() {
         VirtualDesktopSwitcher::ActivateTopWindowOnMonitor(hMon);
     });
     m_mouseFocus->SetEnabled(m_indicatorCfg.autoFocus);
+    if (m_pOverlay) { m_pOverlay->SetDisplayMode(m_indicatorCfg.displayMode); }
 
     SetTimer(m_hwnd, kTimerDesktopSync, 1000, nullptr);
     return true;
@@ -413,6 +417,13 @@ void Application::SyncDesktopState() {
     m_pTrayIcon->UpdateTrayIcon(currentDesktop + 1);
 
     if (m_pOverlay) {
+        if (m_indicatorCfg.displayMode != IndicatorDisplayMode::Symbols) {
+            std::wstring name = m_switcher->GetCurrentDesktopName();
+            if (name.empty() && currentDesktop >= 0) {
+                name = std::wstring(Lang::Get(L"Tray.DesktopName")) + std::to_wstring(currentDesktop + 1);
+            }
+            m_pOverlay->SetCurrentDesktopName(name);
+        }
         auto emptyMask = m_switcher->GetDesktopEmptyMask();
         m_pOverlay->SetDesktopState(desktopCount, currentDesktop, emptyMask);
     }

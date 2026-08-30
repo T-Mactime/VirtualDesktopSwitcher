@@ -286,6 +286,30 @@ int VirtualDesktopHelper::GetCurrentDesktopIndex() const {
     return -1;
 }
 
+std::wstring VirtualDesktopHelper::GetCurrentDesktopName() const {
+    if (m_virtualDesktopManagerInternal == nullptr) { return {}; }
+
+    // 当前桌面 GUID（GetID 各版本稳定）
+    Microsoft::WRL::ComPtr<IVirtualDesktop> current;
+    if (FAILED(m_virtualDesktopManagerInternal->GetCurrentDesktop(&current)) || current == nullptr) { return {}; }
+    GUID id{};
+    if (FAILED(current->GetID(&id))) { return {}; }
+
+    // 从注册表读桌面名（参考 dankrusi/WindowsVirtualDesktopHelper，全版本通用，无 COM vtable 风险）
+    std::array<wchar_t, 40> guidStr{};
+    if (StringFromGUID2(id, guidStr.data(), static_cast<int>(guidStr.size())) == 0) { return {}; }
+    auto key = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VirtualDesktops\\Desktops\\" + std::wstring(guidStr.data());
+
+    std::array<wchar_t, 256> buf{};
+    auto                     size = static_cast<DWORD>(sizeof(buf));
+    if (RegGetValueW(HKEY_CURRENT_USER, key.c_str(), L"Name", RRF_RT_REG_SZ,
+                     nullptr, buf.data(), &size)
+        == ERROR_SUCCESS) {
+        return std::wstring(buf.data());
+    }
+    return {};
+}
+
 void VirtualDesktopHelper::SwitchToDesktop(int index) const {
     Microsoft::WRL::ComPtr<IObjectArray> desktops;
     UINT                                 count = 0;

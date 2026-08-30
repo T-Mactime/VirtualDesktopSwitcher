@@ -56,6 +56,12 @@ constexpr std::array kDragModeKeys = {
     L"Menu.DragNever",
 };
 
+constexpr std::array kDisplayModeKeys = {
+    L"Menu.DisplaySymbols",
+    L"Menu.DisplayName",
+    L"Menu.DisplayBoth",
+};
+
 } // namespace
 
 // GdiplusGuard RAII：GDI+ 生命周期由 TrayIcon 持有（构造启动、析构关闭）
@@ -161,6 +167,14 @@ void TrayIcon::BuildMenu() {
                     CMD_DRAG_MODE_BASE + i, Lang::Get(kDragModeKeys.at(i)));
     }
     AppendMenuW(m_hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hDragMenu), Lang::Get(L"Menu.DragSwitchMode")); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+
+    HMENU hDisplayMenu = CreatePopupMenu();
+    int   curDisplay   = ReadIniInt(L"Display", L"DisplayMode", static_cast<int>(IndicatorDisplayMode::Symbols));
+    for (int i = 0; i < static_cast<int>(IndicatorDisplayMode::Count); ++i) {
+        AppendMenuW(hDisplayMenu, MF_STRING | (curDisplay == i ? MF_CHECKED : 0),
+                    CMD_TRAY_DISPLAY_MODE_BASE + i, Lang::Get(kDisplayModeKeys.at(i)));
+    }
+    AppendMenuW(m_hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hDisplayMenu), Lang::Get(L"Menu.DisplayContent")); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 
     HMENU hShowMenu = CreatePopupMenu();
     int   curShow   = ReadIniInt(L"Display", L"ShowMode", 0);
@@ -398,6 +412,11 @@ void TrayIcon::HandleAutoFocus() {
     if (m_autoFocusFn) { m_autoFocusFn(nowOn); }
 }
 
+void TrayIcon::HandleDisplayModeCommand(int mode) {
+    WriteIniInt(L"Display", L"DisplayMode", mode);
+    if (m_displayModeFn) { m_displayModeFn(mode); }
+}
+
 void TrayIcon::HandleToggleShow() {
     int mode    = ReadIniInt(L"Display", L"ShowMode", 0);
     int newMode = (mode == static_cast<int>(ShowMode::AlwaysHide))
@@ -473,6 +492,10 @@ void TrayIcon::HandleCommand(WPARAM wParam) {
     }
     if (cmd >= CMD_TRAY_NUMBER_COLOR_BASE && cmd < CMD_TRAY_NUMBER_COLOR_BASE + static_cast<UINT>(kPredefinedColors.size())) {
         HandleNumberColorCommand(static_cast<int>(cmd - CMD_TRAY_NUMBER_COLOR_BASE));
+        return;
+    }
+    if (cmd >= CMD_TRAY_DISPLAY_MODE_BASE && cmd < CMD_TRAY_DISPLAY_MODE_CUSTOM) {
+        HandleDisplayModeCommand(static_cast<int>(cmd - CMD_TRAY_DISPLAY_MODE_BASE));
         return;
     }
 

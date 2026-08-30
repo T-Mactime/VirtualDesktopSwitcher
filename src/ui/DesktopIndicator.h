@@ -27,8 +27,11 @@ enum class TaskbarSide : std::uint8_t { Right,
 
 struct SymbolMetrics {
     std::array<int, 9> widths{};
-    int                fontSize = 0;
-    int                spacing  = 0;
+    int                fontSize    = 0;
+    int                spacing     = 0;
+    int                symbolWidth = 0; // total symbol row width incl. spacing
+    int                nameWidth   = 0; // current desktop name width (0 = no name line)
+    int                nameHeight  = 0; // current desktop name height (0 = no name line)
     SIZE               dibSize{};
 };
 
@@ -40,8 +43,9 @@ struct MonitorLayer {
     bool                 isPrimary     = false;
     bool                 bgSampleValid = false;
     POINT                anchorPos{};                      // current absolute screen position (resolved from ratio)
-    double               bgLch_L = -1.0;                   // CIE L* (-1 = uninitialized)
-    double               bgLch_C = 0.0;                    // CIE C* (chroma)
+    int                  symbolRowTop = 0;                 // client Y where the symbol row starts
+    double               bgLch_L      = -1.0;              // CIE L* (-1 = uninitialized)
+    double               bgLch_C      = 0.0;               // CIE C* (chroma)
     std::array<float, 5> smoothV{};                        // per-color smoothed V
     std::array<float, 5> smoothS{};                        // per-color smoothed S
     std::array<float, 9> symbolScales{};                   // per-symbol dock scale (lerped)
@@ -81,6 +85,8 @@ public:
     void ShowTemporarily();
     void SetAnimMode(bool on);
     void SetAutoContrast(bool on);
+    void SetCurrentDesktopName(const std::wstring &name);
+    void SetDisplayMode(IndicatorDisplayMode mode);
     void SetScrollSwitchCallback(std::function<void(int)> cb) { m_scrollSwitchFn = std::move(cb); }
     void UnembedTaskbarIndicator();
     HWND CreateMonitorWindow(HINSTANCE hInst);
@@ -95,8 +101,10 @@ public:
 private:
     std::vector<MonitorLayer>      m_layers;
     std::unique_ptr<FontRenderer>  m_renderer;
+    std::unique_ptr<FontRenderer>  m_nameRenderer;
     IndicatorConfig               *m_pCfg = nullptr;
     std::wstring                   m_text;
+    std::wstring                   m_currentName;
     std::wstring                   m_previewColor;
     bool                           m_hasPreview     = false;
     int                            m_desktopCount   = 0;
@@ -133,6 +141,8 @@ private:
     bool               HandleRawInput(HWND hwnd, LPARAM lp);
     bool               HandleDragStart(HWND hwnd, LPARAM lp);
     SIZE               MeasureContent(int dpi) const;
+    SIZE               MeasureName(int dpi) const;
+    FontRenderer      &NameRenderer() const;
 
     // Taskbar embed helpers
     static void InstallTrayHook();

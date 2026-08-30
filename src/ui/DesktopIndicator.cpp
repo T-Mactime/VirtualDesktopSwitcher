@@ -25,9 +25,11 @@ constexpr int      kAutoHideShow3sMs = 3000;
 const float kSmoothKeep  = std::pow(0.01f, kRenderIntervalMs / 1000.0f);
 const float kSmoothBlend = 1.0f - kSmoothKeep;
 
-constexpr int kPadding   = 8;
-constexpr int kMinWidth  = 50;
-constexpr int kMinHeight = 20;
+constexpr int   kPadding       = 8;
+constexpr int   kMinWidth      = 50;
+constexpr int   kMinHeight     = 20;
+constexpr int   kRowGap        = 2;
+constexpr float kNameFontScale = 0.75f;
 
 struct EnumCtx {
     std::vector<MonitorLayer> *vec;
@@ -250,11 +252,16 @@ void ComputeScales(MonitorLayer &layer, float avgSymW, bool isDragging) {
     }
 }
 
-SymbolMetrics CalcSymbolMetrics(FontRenderer &renderer, const IndicatorConfig &cfg,
-                                const std::wstring &text, const MonitorLayer &layer) {
+SymbolMetrics CalcSymbolMetrics(FontRenderer &renderer, FontRenderer &nameRenderer,
+                                const IndicatorConfig &cfg,
+                                const std::wstring &text, const MonitorLayer &layer,
+                                const std::wstring &name) {
     SymbolMetrics s;
     s.fontSize = MulDiv(cfg.fontSize, layer.dpi, 96);
     s.spacing  = cfg.charSpacing * renderer.Measure(L" ", s.fontSize).cx;
+
+    const bool showSymbols = (cfg.displayMode != IndicatorDisplayMode::Name);
+    const bool showName    = (cfg.displayMode != IndicatorDisplayMode::Symbols) && !name.empty();
 
     int symCount = static_cast<int>(text.size());
     int totalW = 0, maxH = 0;
@@ -266,7 +273,19 @@ SymbolMetrics CalcSymbolMetrics(FontRenderer &renderer, const IndicatorConfig &c
         maxH = std::max(static_cast<int>(size.cy), maxH);
     }
     if (symCount > 1) { totalW += s.spacing * (symCount - 1); }
-    s.dibSize = {std::max(totalW + kPadding * 2, kMinWidth), std::max(maxH + kPadding * 2, kMinHeight)};
+    s.symbolWidth = showSymbols ? totalW : 0;
+
+    if (showName) {
+        int  nameFont = static_cast<int>(static_cast<float>(s.fontSize) * kNameFontScale);
+        auto nsz      = nameRenderer.Measure(name.c_str(), nameFont);
+        s.nameWidth   = static_cast<int>(nsz.cx);
+        s.nameHeight  = static_cast<int>(nsz.cy);
+    }
+
+    int symW     = showSymbols ? totalW : 0;
+    int contentH = (showSymbols ? maxH : 0) + s.nameHeight + ((showSymbols && s.nameHeight > 0) ? kRowGap : 0);
+    int dibW     = std::max(symW, s.nameWidth) + kPadding * 2;
+    s.dibSize    = {std::max(dibW, kMinWidth), std::max(contentH + kPadding * 2, kMinHeight)};
     return s;
 }
 
@@ -390,6 +409,8 @@ bool DesktopIndicator::GetSymbolIndexAt(POINT screenPt, int &outIndex) const {
         GetWindowRect(l.hwnd, &wr);
         if (PtInRect(&wr, screenPt) == 0) { continue; }
 
+        if (static_cast<int>(screenPt.y - wr.top) < l.symbolRowTop) { continue; } // 名字行不参与命中
+
         auto clientX = static_cast<float>(screenPt.x - wr.left);
         for (int i = 0; i < static_cast<int>(m_text.size()); ++i) {
             if (l.symbolHalfWidths.at(i) <= 0.0f) { continue; }
@@ -441,6 +462,11 @@ bool DesktopIndicator::Initialize(HINSTANCE hInstance) {
     if (!m_renderer->Init(m_pCfg->fontName)) {
         m_pCfg->fontName = L"Segoe UI Symbol";
         m_renderer->Init(m_pCfg->fontName);
+    }
+    // 名字行需要中文支持（默认符号字体 Segoe UI Symbol 无 CJK 字形）
+    m_nameRenderer = std::make_unique<FontRenderer>();
+    if (!m_nameRenderer->Init(L"Microsoft YaHei UI")) {
+        m_nameRenderer->Init(L"Segoe UI");
     }
 
     // 3. Build text and enumerate monitors
@@ -571,14 +597,10 @@ void DesktopIndicator::RebuildText() {
     m_text = text;
 
     if (m_isTaskbarEmbedded && m_renderer != nullptr) {
-        auto spacedText = BuildSpacedText(m_text, m_pCfg->charSpacing);
         for (auto &l : m_layers) {
             if (!l.hasTaskbar || l.taskbarHwnd == nullptr) { continue; }
-            int  fs   = MulDiv(m_pCfg->fontSize, l.dpi, 96);
-            auto size = m_renderer->Measure(spacedText.c_str(), fs);
-            int  w    = std::max(static_cast<int>(size.cx) + kPadding * 2, kMinWidth);
-            int  h    = std::max(static_cast<int>(size.cy) + kPadding * 2, kMinHeight);
-            PositionInTaskbar(l, l.taskbarHwnd, w, h, l.taskbarSide);
+            SIZE sz = MeasureContent(l.dpi);
+            PositionInTaskbar(l, l.taskbarHwnd, sz.cx, sz.cy, l.taskbarSide);
         }
     }
 
@@ -586,11 +608,41 @@ void DesktopIndicator::RebuildText() {
 }
 
 SIZE DesktopIndicator::MeasureContent(int dpi) const {
-    auto spacedText = BuildSpacedText(m_text, m_pCfg->charSpacing);
-    int  fs         = MulDiv(m_pCfg->fontSize, dpi, 96);
-    auto size       = m_renderer->Measure(spacedText.c_str(), fs);
-    return {std::max(static_cast<int>(size.cx) + kPadding * 2, kMinWidth),
-            std::max(static_cast<int>(size.cy) + kPadding * 2, kMinHeight)};
+    SIZE sym{0, 0};
+    if (m_pCfg->displayMode != IndicatorDisplayMode::Name) {
+        auto spacedText = BuildSpacedText(m_text, m_pCfg->charSpacing);
+        int  fs         = MulDiv(m_pCfg->fontSize, dpi, 96);
+        auto s          = m_renderer->Measure(spacedText.c_str(), fs);
+        sym             = {static_cast<int>(s.cx), static_cast<int>(s.cy)};
+    }
+    auto name = MeasureName(dpi);
+    int  w    = std::max(static_cast<int>(sym.cx), static_cast<int>(name.cx));
+    int  h    = static_cast<int>(sym.cy) + static_cast<int>(name.cy) + ((sym.cy > 0 && name.cy > 0) ? kRowGap : 0);
+    return {std::max(w + kPadding * 2, kMinWidth),
+            std::max(h + kPadding * 2, kMinHeight)};
+}
+
+SIZE DesktopIndicator::MeasureName(int dpi) const {
+    if (m_pCfg == nullptr || m_pCfg->displayMode == IndicatorDisplayMode::Symbols || m_currentName.empty()) { return {0, 0}; }
+    int  fs   = static_cast<int>(static_cast<float>(MulDiv(m_pCfg->fontSize, dpi, 96)) * kNameFontScale);
+    auto size = NameRenderer().Measure(m_currentName.c_str(), fs);
+    return {static_cast<int>(size.cx), static_cast<int>(size.cy)};
+}
+
+FontRenderer &DesktopIndicator::NameRenderer() const {
+    return (m_nameRenderer != nullptr) ? *m_nameRenderer : *m_renderer;
+}
+
+void DesktopIndicator::SetCurrentDesktopName(const std::wstring &name) {
+    if (m_currentName == name) { return; }
+    m_currentName = name;
+    RebuildText();
+}
+
+void DesktopIndicator::SetDisplayMode(IndicatorDisplayMode mode) {
+    if (m_pCfg == nullptr || m_pCfg->displayMode == mode) { return; }
+    m_pCfg->displayMode = mode;
+    RebuildText();
 }
 
 void DesktopIndicator::SetColor(const std::wstring &hexColor) {
@@ -933,23 +985,46 @@ void DesktopIndicator::PresentLayer(MonitorLayer        &layer,
     DWORD clear   = m_editMode ? 0x55000000 : 0x00000000;
     std::fill_n(static_cast<DWORD *>(bits), w * h, clear);
 
-    int curX = kPadding;
-    for (int i = 0; i < static_cast<int>(m_text.size()); ++i) {
-        int                    symFont  = static_cast<int>(static_cast<float>(metrics.fontSize) * layer.symbolScales.at(i));
-        COLORREF               symColor = (colors.count >= 2)
-                                              ? InterpolateGradientColor(colors.colors.data(), colors.count,
-                                                                         static_cast<float>(i) / static_cast<float>(std::max(static_cast<int>(m_text.size()) - 1, 1)))
-                                              : colors.colors[0];
+    int symbolTop = kPadding;
+    int symStartX = kPadding;
+    if (metrics.nameHeight > 0) {
+        symbolTop    = kPadding + metrics.nameHeight + kRowGap;
+        int contentW = w - kPadding * 2;
+        symStartX    = kPadding + std::max((contentW - metrics.symbolWidth) / 2, 0);
+
+        COLORREF               nameColor = (colors.count >= 2)
+                                               ? InterpolateGradientColor(colors.colors.data(), colors.count,
+                                                                          static_cast<float>(m_currentDesktop) / static_cast<float>(std::max(static_cast<int>(m_text.size()) - 1, 1)))
+                                               : colors.colors[0];
         std::array<wchar_t, 8> colorBuf{};
         swprintf_s(colorBuf.data(), colorBuf.size(), L"#%02X%02X%02X", // NOLINT
-                   GetRValue(symColor), GetGValue(symColor), GetBValue(symColor));
-        std::wstring symColorStr(colorBuf.data());
-        std::wstring sym(1, m_text[i]);
-        m_renderer->Render(bits, w, h, curX, kPadding, metrics.widths.at(i), h - kPadding * 2,
-                           sym.c_str(), symColorStr, symFont);
-        layer.symbolCenters.at(i)    = static_cast<float>(curX) + static_cast<float>(metrics.widths.at(i)) * 0.5f;
-        layer.symbolHalfWidths.at(i) = static_cast<float>(metrics.widths.at(i)) * 0.5f;
-        curX += metrics.widths.at(i) + metrics.spacing;
+                   GetRValue(nameColor), GetGValue(nameColor), GetBValue(nameColor));
+        std::wstring nameColorStr(colorBuf.data());
+        int          nameX    = (w - metrics.nameWidth) / 2;
+        int          nameFont = static_cast<int>(static_cast<float>(metrics.fontSize) * kNameFontScale);
+        NameRenderer().Render(bits, w, h, nameX, kPadding, metrics.nameWidth, metrics.nameHeight,
+                              m_currentName.c_str(), nameColorStr, nameFont);
+    }
+
+    if (m_pCfg->displayMode != IndicatorDisplayMode::Name) {
+        int curX = symStartX;
+        for (int i = 0; i < static_cast<int>(m_text.size()); ++i) {
+            int                    symFont  = static_cast<int>(static_cast<float>(metrics.fontSize) * layer.symbolScales.at(i));
+            COLORREF               symColor = (colors.count >= 2)
+                                                  ? InterpolateGradientColor(colors.colors.data(), colors.count,
+                                                                             static_cast<float>(i) / static_cast<float>(std::max(static_cast<int>(m_text.size()) - 1, 1)))
+                                                  : colors.colors[0];
+            std::array<wchar_t, 8> colorBuf{};
+            swprintf_s(colorBuf.data(), colorBuf.size(), L"#%02X%02X%02X", // NOLINT
+                       GetRValue(symColor), GetGValue(symColor), GetBValue(symColor));
+            std::wstring symColorStr(colorBuf.data());
+            std::wstring sym(1, m_text[i]);
+            m_renderer->Render(bits, w, h, curX, symbolTop, metrics.widths.at(i), h - symbolTop - kPadding,
+                               sym.c_str(), symColorStr, symFont);
+            layer.symbolCenters.at(i)    = static_cast<float>(curX) + static_cast<float>(metrics.widths.at(i)) * 0.5f;
+            layer.symbolHalfWidths.at(i) = static_cast<float>(metrics.widths.at(i)) * 0.5f;
+            curX += metrics.widths.at(i) + metrics.spacing;
+        }
     }
 
     SIZE          size  = {w, h};
@@ -991,13 +1066,20 @@ void DesktopIndicator::RenderLayer(MonitorLayer &layer, HDC hdcScreen, HDC hdcMe
     if (symCount > 1) { unscaledW += static_cast<float>(spacing * (symCount - 1)); }
     float avgSymW = (symCount > 0) ? unscaledW / static_cast<float>(symCount) : 0.0f;
     int   centerW = std::max(static_cast<int>(unscaledW) + kPadding * 2, kMinWidth);
+    if (m_pCfg->displayMode != IndicatorDisplayMode::Symbols) {
+        auto nameSz = MeasureName(layer.dpi);
+        int  nameW  = std::max(static_cast<int>(nameSz.cx) + kPadding * 2, kMinWidth);
+        centerW     = (m_pCfg->displayMode == IndicatorDisplayMode::Name) ? nameW : std::max(centerW, nameW);
+    }
 
     // 2. 缩放计算
     bool isDragging = (m_draggingWindow && !m_editMode);
     ComputeScales(layer, avgSymW, isDragging);
 
     // 3. 缩放后布局
-    auto metrics = CalcSymbolMetrics(*m_renderer, *m_pCfg, m_text, layer);
+    std::wstring name    = (m_pCfg->displayMode != IndicatorDisplayMode::Symbols) ? m_currentName : L"";
+    auto         metrics = CalcSymbolMetrics(*m_renderer, NameRenderer(), *m_pCfg, m_text, layer, name);
+    layer.symbolRowTop   = (metrics.nameHeight > 0) ? kPadding + metrics.nameHeight + kRowGap : kPadding;
 
     // 4. 渲染提交
     PresentLayer(layer, metrics, centerW, actualColors, hdcScreen, hdcMem);

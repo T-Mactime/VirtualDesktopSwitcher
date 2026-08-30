@@ -48,6 +48,7 @@ public:
 
     [[nodiscard]] int                            GetDesktopCount() const;
     [[nodiscard]] int                            GetCurrentDesktopIndex() const;
+    [[nodiscard]] std::wstring                   GetCurrentDesktopName() const;
     [[nodiscard]] std::array<bool, kMaxDesktops> GetDesktopEmptyMask() const;
 
 private:

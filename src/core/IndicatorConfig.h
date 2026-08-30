@@ -36,26 +36,34 @@ enum class TrayIconMode : std::uint8_t {
     Count  = 2
 };
 
+enum class IndicatorDisplayMode : std::uint8_t {
+    Symbols = 0,
+    Name    = 1,
+    Both    = 2,
+    Count   = 3
+};
+
 struct WindowRatio {
     float x = 0.5f;
     float y = 0.0f;
 };
 
 struct IndicatorConfig {
-    std::wstring   textColor      = L"#FFA745_#FE869F_#EF7AC8_#A083ED_#43AEFF";
-    std::wstring   fontName       = L"Segoe UI Symbol";
-    int            fontSize       = 20;
-    int            charSpacing    = 0;
-    std::wstring   currentSymbol  = L"\u25C9";
-    std::wstring   otherSymbol    = L"\u25CB";
-    std::wstring   emptySymbol    = L"\u25CC";
-    WindowRatio    windowRatio    = {};
-    PositionPreset positionPreset = PositionPreset::Custom;
-    ShowMode       showMode       = ShowMode::AlwaysShow;
-    int            animMode       = 1;
-    bool           autoContrast   = true;
-    bool           autoFocus      = true;
-    DragSwitchMode dragSwitchMode = DragSwitchMode::Always;
+    std::wstring         textColor      = L"#FFA745_#FE869F_#EF7AC8_#A083ED_#43AEFF";
+    std::wstring         fontName       = L"Segoe UI Symbol";
+    int                  fontSize       = 20;
+    int                  charSpacing    = 0;
+    std::wstring         currentSymbol  = L"\u25C9";
+    std::wstring         otherSymbol    = L"\u25CB";
+    std::wstring         emptySymbol    = L"\u25CC";
+    WindowRatio          windowRatio    = {};
+    PositionPreset       positionPreset = PositionPreset::Custom;
+    ShowMode             showMode       = ShowMode::AlwaysShow;
+    int                  animMode       = 1;
+    bool                 autoContrast   = true;
+    bool                 autoFocus      = true;
+    IndicatorDisplayMode displayMode    = IndicatorDisplayMode::Symbols;
+    DragSwitchMode       dragSwitchMode = DragSwitchMode::Always;
 
     void LoadFromIni();
     void SaveToIni() const;

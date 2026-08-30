@@ -7,14 +7,12 @@
 
 #include "util/Utils.h"
 
-// IVirtualDesktop接口定义
+// IVirtualDesktop接口定义（桌面名从注册表读取，不依赖 GetName 的版本变体）
 MIDL_INTERFACE("3F07F4BE-B107-441A-AF0F-39D82529072C")
 IVirtualDesktop : public IUnknown { // NOLINT(cppcoreguidelines-virtual-class-destructor)
 public:
     virtual HRESULT STDMETHODCALLTYPE IsViewVisible(IUnknown * pView, BOOL * pfVisible) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetID(GUID * pGuid)                               = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetName(LPWSTR * ppwszName)                       = 0;
-    virtual HRESULT STDMETHODCALLTYPE IsRemote(BOOL * pfIsRemote)                       = 0;
 };
 
 // IVirtualDesktopManagerInternal接口定义
@@ -103,6 +101,7 @@ public:
     void                                         Refresh();
     [[nodiscard]] int                            GetDesktopCount() const;
     [[nodiscard]] int                            GetCurrentDesktopIndex() const;
+    [[nodiscard]] std::wstring                   GetCurrentDesktopName() const;
     [[nodiscard]] bool                           IsWindowOnCurrentDesktop(HWND hwnd) const;
     [[nodiscard]] std::array<bool, kMaxDesktops> GetDesktopEmptyMask() const;
     void                                         SwitchToDesktop(int index) const;

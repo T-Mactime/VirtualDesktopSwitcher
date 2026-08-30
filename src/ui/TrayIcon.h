@@ -12,13 +12,15 @@
 #include "core/IndicatorConfig.h"
 #include "util/Utils.h"
 
-constexpr UINT WM_TRAYICON                = WM_USER + 2;
-constexpr UINT CMD_TRAY_LANG_CHINESE      = WM_USER + 50;
-constexpr UINT CMD_TRAY_LANG_ENGLISH      = WM_USER + 51;
-constexpr UINT CMD_TRAY_ICON_MODE_ICON    = WM_USER + 60;
-constexpr UINT CMD_TRAY_ICON_MODE_NUMBER  = WM_USER + 61;
-constexpr UINT CMD_COLOR_OPTIONS_BASE     = WM_USER + 100;
-constexpr UINT CMD_TRAY_NUMBER_COLOR_BASE = WM_USER + 500;
+constexpr UINT WM_TRAYICON                  = WM_USER + 2;
+constexpr UINT CMD_TRAY_LANG_CHINESE        = WM_USER + 50;
+constexpr UINT CMD_TRAY_LANG_ENGLISH        = WM_USER + 51;
+constexpr UINT CMD_TRAY_ICON_MODE_ICON      = WM_USER + 60;
+constexpr UINT CMD_TRAY_ICON_MODE_NUMBER    = WM_USER + 61;
+constexpr UINT CMD_TRAY_DISPLAY_MODE_BASE   = WM_USER + 62;
+constexpr UINT CMD_TRAY_DISPLAY_MODE_CUSTOM = CMD_TRAY_DISPLAY_MODE_BASE + static_cast<UINT>(IndicatorDisplayMode::Count);
+constexpr UINT CMD_COLOR_OPTIONS_BASE       = WM_USER + 100;
+constexpr UINT CMD_TRAY_NUMBER_COLOR_BASE   = WM_USER + 500;
 
 constexpr int kTrayDefaultIconResource = 101;
 class GdiplusGuard;
@@ -51,6 +53,7 @@ public:
     void SetAnimModeCallback(std::function<void(bool)> cb) { m_animModeFn = std::move(cb); }
     void SetAutoContrastCallback(std::function<void(bool)> cb) { m_autoContrastFn = std::move(cb); }
     void SetAutoFocusCallback(std::function<void(bool)> cb) { m_autoFocusFn = std::move(cb); }
+    void SetDisplayModeCallback(std::function<void(int)> cb) { m_displayModeFn = std::move(cb); }
     void SetDragSwitchModeCallback(std::function<void(int)> cb) { m_dragModeFn = std::move(cb); }
 
 private:
@@ -75,6 +78,7 @@ private:
     std::function<void(bool)>                 m_animModeFn;
     std::function<void(bool)>                 m_autoContrastFn;
     std::function<void(bool)>                 m_autoFocusFn;
+    std::function<void(int)>                  m_displayModeFn;
     std::function<void(int)>                  m_dragModeFn;
 
     void         BuildMenu();
@@ -90,6 +94,7 @@ private:
     void        HandleAnimMode();
     void        HandleAutoContrast();
     void        HandleAutoFocus();
+    void        HandleDisplayModeCommand(int mode);
     void        HandleDragSwitchModeCommand(int mode);
     void        HandleToggleShow();
     void        HandleToggleAutoStart();
