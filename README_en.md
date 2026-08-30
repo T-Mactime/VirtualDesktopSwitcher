@@ -18,11 +18,12 @@
 - **Hotkey switching**: `Alt + 1` ~ `Alt + 9` to jump directly to the corresponding virtual desktop (keys and modifier keys are customizable)
 - **Return to previous desktop**: ``Alt + ` `` to switch back to the previously active virtual desktop
 - **Pin window to all desktops**: `Alt + D` to pin (or unpin) the current window to all virtual desktops, keeping it visible across desktop switches.
-- **Desktop indicator**: Uses distinct symbols for different desktop states — **◉ current** desktop, **○ non-empty** desktops, and **◌ empty** desktops. Fully customizable position, size, and style.
+- **Desktop indicator**: Three display modes — **Symbol indicator** (**◉** current, **○** non-empty, **◌** empty desktops), **Desktop name** (shows the current desktop's name), or **Show both** (name + symbols on two rows). Fully customizable position, size, style, and font.
 - **Scroll to switch**: Scroll the mouse wheel while hovering over the indicator to quickly switch to the previous/next virtual desktop.
-- **Drag to move**: Drag any window onto an indicator symbol to move it to that virtual desktop and automatically switch to it.
+- **Drag to move**: Drag any window onto an indicator symbol to move it to that virtual desktop and automatically switch to it. Can be configured to require holding **Alt** or **Ctrl** (or disabled entirely).
+- **Tray icon shows desktop number**: The tray icon displays the current desktop number — switchable back to the default icon, with customizable number color.
 - **Cursor focus**: On multi-monitor setups, moving the mouse cursor between monitors automatically focuses the top window on the target monitor.
-- **Extremely lightweight**: Executable ~140KB, memory footprint ~2MB, zero dependencies, runs silently in the background.
+- **Extremely lightweight**: Executable ~150KB, memory footprint ~2MB, zero dependencies, runs silently in the background.
 
 ## 📦 Installation
 
@@ -45,13 +46,15 @@ To build from source, see [Building from Source](#building-from-source) below.
 - **Scroll** the mouse wheel while hovering over the indicator to switch desktops
 - **Drag a window** onto an indicator symbol to move it to that desktop and switch to it automatically
 - Right-click the tray icon to configure:
-   - Adjust indicator **position**, **size**, **style**, **hotkeys**, and **display**
-   - Toggle auto-start and run as administrator
+   - Adjust indicator **position**, **size**, **style**, **hotkeys**, and **display content** (symbol indicator / desktop name / both)
+   - Set the **drag-to-switch** trigger (always / hold Alt / hold Ctrl / disabled)
+   - Configure **tray icon** mode (default icon / desktop number) and number **color**
+   - Toggle **cross-monitor focus**, auto-start, and run as administrator
 - Double-click the tray icon to quickly **show/hide the indicator**
 
 ## 📝 INI Configuration
 
-Configuration file is saved to `%LOCALAPPDATA%\VirtualDesktopSwitcher\config.ini`. You can customize the keys for switching and pinning virtual desktops in this file.
+Configuration file is saved to `%LOCALAPPDATA%\VirtualDesktopSwitcher\settings.ini`. You can customize the keys for switching and pinning virtual desktops in this file.
 
 | Key | Description | Default Value |
 |---|---|---|
