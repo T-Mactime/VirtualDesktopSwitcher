@@ -36,6 +36,27 @@ jobs:
         with:
           dotnet-version: '6.0.x'
 
+      - name: Sync winget-pkgs fork
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $headers = @{ Authorization = "token $env:WINGET_TOKEN"; "User-Agent" = "VirtualDesktopSwitcher-winget-sync" }
+          $me = (Invoke-RestMethod -Uri "https://api.github.com/user" -Headers $headers).login
+          $fork = Invoke-RestMethod -Uri "https://api.github.com/repos/$me/winget-pkgs" -Headers $headers
+          $branch = $fork.default_branch
+          # Invoke-RestMethod 会解码 %2F 导致 PATCH 404，改用 curl 保留编码
+          $upstream = Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/winget-pkgs/git/refs/heads%2F$branch" -Headers $headers
+          $sha = $upstream.object.sha
+          $body = @{ sha = $sha; force = $true } | ConvertTo-Json -Compress
+          curl.exe -sS -X PATCH `
+            -H "Authorization: token $env:WINGET_TOKEN" `
+            -H "Accept: application/vnd.github+json" `
+            -H "Content-Type: application/json" `
+            -d $body `
+            "https://api.github.com/repos/$me/winget-pkgs/git/refs/heads%2F$branch"
+          Write-Host "fork synced to $branch @ $($sha.Substring(0,7))"
+
       - name: Submit winget PR
         shell: pwsh
         run: |
