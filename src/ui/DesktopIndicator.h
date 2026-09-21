@@ -51,6 +51,10 @@ struct MonitorLayer {
     std::array<float, 9> symbolScales{};                   // per-symbol dock scale (lerped)
     std::array<float, 9> symbolCenters{};                  // client X center after render
     std::array<float, 9> symbolHalfWidths{};               // half-width after render
+    std::array<float, 9> symbolLefts{};                    // client X left bound after render
+    std::array<float, 9> symbolRights{};                   // client X right bound after render
+    std::array<RECT, 9>  symbolRects{};                     // exact clickable client rect for each rendered symbol
+    std::array<std::vector<uint8_t>, 9> symbolMasks{};      // filled hit mask for each symbol, independent of the rendered glyph outline
     bool                 hasTaskbar  = false;              // embed mode: has taskbar on this monitor
     HWND                 taskbarHwnd = nullptr;            // embed mode: Shell_TrayWnd handle
     TaskbarSide          taskbarSide = TaskbarSide::Right; // embed mode: left or right side
