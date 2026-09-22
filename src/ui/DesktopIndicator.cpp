@@ -1,4 +1,4 @@
-// ,ont,ins cod, a,,,ted fr,,,Cat,me,(Apa,he 2,0),,
+// Contains code adapted from Catime (Apache 2.0)
 // Original: https://github.com/vladelaina/Catime
 #include "DesktopIndicator.h"
 
@@ -1037,6 +1037,30 @@ void DesktopIndicator::PresentLayer(MonitorLayer        &layer,
             };
             curX += metrics.widths.at(i) + metrics.spacing;
         }
+
+        // Make the whole symbol box hit-testable. A WS_EX_LAYERED window only
+        // receives mouse input over pixels with non-zero alpha, so hollow glyphs
+        // (e.g. ○/◌) whose interior has alpha=0 would only be clickable on their
+        // outline. Nudge transparent pixels inside each symbol rect to a barely
+        // visible alpha (1/255) so a left-click anywhere on the icon reaches the
+        // window and can switch desktops, without altering the drawn glyph.
+        constexpr DWORD kClickBlendAlpha = 0x01u << 24u; // ARGB: A=1, RGB=0 (premultiplied, imperceptible)
+        for (int i = 0; i < static_cast<int>(m_text.size()); ++i) {
+            const RECT &rc = layer.symbolRects.at(i);
+            LONG       x0  = std::max(rc.left, 0L);
+            LONG       x1  = std::min(rc.right, static_cast<LONG>(w));
+            LONG       y0  = std::max(rc.top, 0L);
+            LONG       y1  = std::min(rc.bottom, static_cast<LONG>(h));
+            for (LONG yy = y0; yy < y1; ++yy) {
+                auto *row = static_cast<DWORD *>(bits) + static_cast<size_t>(yy) * w;
+                for (LONG xx = x0; xx < x1; ++xx) {
+                    DWORD &pix = row[xx];
+                    if (((pix >> 24u) & 0xFFu) == 0u) {
+                        pix |= kClickBlendAlpha;
+                    }
+                }
+            }
+        }
     }
 
     SIZE          size  = {w, h};
@@ -1190,7 +1214,9 @@ bool DesktopIndicator::HandleRawInput(HWND /*hwnd*/, LPARAM lp) {
 
     auto delta = static_cast<int16_t>(raw->data.mouse.usButtonData); // NOLINT(cppcoreguidelines-pro-type-union-access)
 
-    if (m_editMode && m_pCfg != nullptr) {
+    // 编辑模式或按住 Ctrl 时，滚轮用于缩放字号（Ctrl+滚轮在普通模式也可缩放）。
+    bool ctrlHeld = (static_cast<UINT>(GetAsyncKeyState(VK_CONTROL)) & 0x8000u) != 0;
+    if ((m_editMode || ctrlHeld) && m_pCfg != nullptr) {
         int oldSize = m_pCfg->fontSize;
         m_pCfg->fontSize += (delta > 0) ? 1 : -1;
         m_pCfg->fontSize = (std::clamp)(m_pCfg->fontSize, 12, 300);
@@ -1230,6 +1256,19 @@ bool DesktopIndicator::HandleDragStart(HWND hwnd, LPARAM lp) {
     return true;
 }
 
+// 判断“点击图标切换桌面”当前是否应生效。复用拖拽切换模式 (dragSwitchMode)：
+// Always 始终生效；Never 不生效；Alt/Ctrl 需在按下对应按键时点击才生效。
+bool DesktopIndicator::IsClickSwitchActive() const {
+    if (m_pCfg == nullptr) { return false; }
+    switch (m_pCfg->dragSwitchMode) {
+    case DragSwitchMode::Always: return true;
+    case DragSwitchMode::Never:  return false;
+    case DragSwitchMode::Alt:    return (GetAsyncKeyState(VK_MENU) & 0x8000u) != 0;
+    case DragSwitchMode::Ctrl:   return (GetAsyncKeyState(VK_CONTROL) & 0x8000u) != 0;
+    default: return false;
+    }
+}
+
 LRESULT CALLBACK DesktopIndicator::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto *overlay = GetWndUserData<DesktopIndicator>(hwnd);
     if (overlay != nullptr) {
@@ -1258,10 +1297,22 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
             return DefWindowProcW(hwnd, msg, wp, lp);
         }
 
+        // 普通模式：按住 Ctrl + 左键 → 进入“待定”状态等待判断是拖拽还是点击。
+        // 按住 Ctrl 但只点不拖 → 既不移动也不切换（在 MouseMove/ButtonUp 中收尾）。
+        bool ctrlHeld = (static_cast<UINT>(GetAsyncKeyState(VK_CONTROL)) & 0x8000u) != 0;
+        if (ctrlHeld) {
+            if (m_isTaskbarEmbedded) { return 0; } // 嵌入任务栏时不允许普通模式拖动
+            m_dragPending = true;
+            m_dragDownPt  = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            ClientToScreen(hwnd, &m_dragDownPt);
+            SetCapture(hwnd);
+            return 0;
+        }
+
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
         ClientToScreen(hwnd, &pt);
         int index = -1;
-        if (GetSymbolIndexAt(pt, index) && m_scrollSwitchFn && m_desktopCount > 0) {
+        if (IsClickSwitchActive() && GetSymbolIndexAt(pt, index) && m_scrollSwitchFn && m_desktopCount > 0) {
             if (index >= 0 && index < m_desktopCount) {
                 m_scrollSwitchFn(index);
                 return 0;
@@ -1271,6 +1322,25 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     }
 
     case WM_MOUSEMOVE:
+        // 普通模式 Ctrl 移动：待定态下移动超过阈值即认定为拖拽，并记录起始偏移。
+        if (m_dragPending && ((wp & MK_LBUTTON) != 0u)) {
+            POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            ClientToScreen(hwnd, &pt);
+            int dx = pt.x - m_dragDownPt.x;
+            int dy = pt.y - m_dragDownPt.y;
+            if (dx * dx + dy * dy > 4 * 4) { // ~4px 阈值区分点击与拖拽
+                m_dragPending = false;
+                auto it      = std::ranges::find_if(m_layers,
+                                                    [hwnd](const MonitorLayer &l) { return l.hwnd == hwnd; });
+                if (it != m_layers.end()) {
+                    m_dragOffset.x = m_dragDownPt.x - it->anchorPos.x;
+                    m_dragOffset.y = m_dragDownPt.y - it->anchorPos.y;
+                    m_dragging     = true;
+                }
+            }
+            return 0;
+        }
+
         if (m_dragging && ((wp & MK_LBUTTON) != 0u)) {
             POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ClientToScreen(hwnd, &pt);
@@ -1294,12 +1364,23 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         return 0;
 
     case WM_LBUTTONUP:
-        if (!m_editMode) { return DefWindowProcW(hwnd, msg, wp, lp); }
+        if (m_dragPending) {
+            // 普通模式：按住 Ctrl 点一下但不拖 → 既不移动也不切换。
+            m_dragPending = false;
+            ReleaseCapture();
+            return 0;
+        }
         if (m_dragging) {
+            bool normalMove = !m_editMode;
             m_dragging = false;
             ReleaseCapture();
-            if (m_pCfg != nullptr) { m_pCfg->positionPreset = PositionPreset::Custom; }
+            if (m_pCfg != nullptr) {
+                m_pCfg->positionPreset = PositionPreset::Custom;
+                if (normalMove) { m_pCfg->SaveToIni(); } // 普通模式 Ctrl 拖拽结束即保存新位置
+            }
+            return 0;
         }
+        if (!m_editMode) { return DefWindowProcW(hwnd, msg, wp, lp); }
         return 0;
 
     case WM_LBUTTONDBLCLK:
