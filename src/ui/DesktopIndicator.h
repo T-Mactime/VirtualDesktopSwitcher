@@ -117,8 +117,6 @@ private:
     bool                           m_editMode   = false;
     bool                           m_dragging   = false;
     POINT                          m_dragOffset = {.x = 0, .y = 0};
-    bool                           m_dragPending = false;   // 普通模式按住 Ctrl 左键按下后，尚未确定为拖拽或点击
-    POINT                          m_dragDownPt  = {.x = 0, .y = 0}; // 拖拽起始屏幕坐标
     std::function<void(int)>       m_scrollSwitchFn;
     bool                           m_draggingWindow    = false;
     bool                           m_isTaskbarEmbedded = false;
@@ -147,6 +145,8 @@ private:
     bool               HandleRawInput(HWND hwnd, LPARAM lp);
     bool               HandleDragStart(HWND hwnd, LPARAM lp);
     [[nodiscard]] bool IsClickSwitchActive() const;
+    // 命中测试：若该屏幕点落在可切换的符号上且切换功能当前生效，则返回 true 并给出目标桌面索引。
+    [[nodiscard]] bool HitTestClickSwitch(POINT screenPt, int &outIndex) const;
     SIZE               MeasureContent(int dpi) const;
     SIZE               MeasureName(int dpi) const;
     FontRenderer      &NameRenderer() const;

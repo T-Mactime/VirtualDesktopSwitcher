@@ -1269,6 +1269,12 @@ bool DesktopIndicator::IsClickSwitchActive() const {
     }
 }
 
+bool DesktopIndicator::HitTestClickSwitch(POINT screenPt, int &outIndex) const {
+    if (!IsClickSwitchActive() || !m_scrollSwitchFn || m_desktopCount <= 0) { return false; }
+    if (!GetSymbolIndexAt(screenPt, outIndex)) { return false; }
+    return outIndex >= 0 && outIndex < m_desktopCount;
+}
+
 LRESULT CALLBACK DesktopIndicator::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto *overlay = GetWndUserData<DesktopIndicator>(hwnd);
     if (overlay != nullptr) {
@@ -1287,6 +1293,19 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         return 0;
     }
 
+    case WM_NCHITTEST: {
+        LRESULT hit = DefWindowProcW(hwnd, msg, wp, lp);
+        // 编辑模式或默认命中结果不是客户区：不干预（编辑模式需可拖动定位）。
+        if (m_editMode || hit != HTCLIENT) { return hit; }
+        // WM_NCHITTEST 的 lParam 携带光标屏幕坐标。
+        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        int   idx = -1;
+        // 仅在这次点击会真实切换桌面时拦截；否则返回 HTTRANSPARENT，
+        // 让该点击穿透到下层窗口（例如需要组合键切换时，单纯点击直接穿透）。
+        if (!HitTestClickSwitch(pt, idx)) { return HTTRANSPARENT; }
+        return hit;
+    }
+
     case WM_INPUT:
         if (HandleRawInput(hwnd, lp)) { return 0; }
         break;
@@ -1297,50 +1316,17 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
             return DefWindowProcW(hwnd, msg, wp, lp);
         }
 
-        // 普通模式：按住 Ctrl + 左键 → 进入“待定”状态等待判断是拖拽还是点击。
-        // 按住 Ctrl 但只点不拖 → 既不移动也不切换（在 MouseMove/ButtonUp 中收尾）。
-        bool ctrlHeld = (static_cast<UINT>(GetAsyncKeyState(VK_CONTROL)) & 0x8000u) != 0;
-        if (ctrlHeld) {
-            if (m_isTaskbarEmbedded) { return 0; } // 嵌入任务栏时不允许普通模式拖动
-            m_dragPending = true;
-            m_dragDownPt  = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-            ClientToScreen(hwnd, &m_dragDownPt);
-            SetCapture(hwnd);
-            return 0;
-        }
-
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
         ClientToScreen(hwnd, &pt);
-        int index = -1;
-        if (IsClickSwitchActive() && GetSymbolIndexAt(pt, index) && m_scrollSwitchFn && m_desktopCount > 0) {
-            if (index >= 0 && index < m_desktopCount) {
-                m_scrollSwitchFn(index);
-                return 0;
-            }
+        int idx = -1;
+        if (HitTestClickSwitch(pt, idx)) {
+            m_scrollSwitchFn(idx);
+            return 0;
         }
         return DefWindowProcW(hwnd, msg, wp, lp);
     }
 
     case WM_MOUSEMOVE:
-        // 普通模式 Ctrl 移动：待定态下移动超过阈值即认定为拖拽，并记录起始偏移。
-        if (m_dragPending && ((wp & MK_LBUTTON) != 0u)) {
-            POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-            ClientToScreen(hwnd, &pt);
-            int dx = pt.x - m_dragDownPt.x;
-            int dy = pt.y - m_dragDownPt.y;
-            if (dx * dx + dy * dy > 4 * 4) { // ~4px 阈值区分点击与拖拽
-                m_dragPending = false;
-                auto it      = std::ranges::find_if(m_layers,
-                                                    [hwnd](const MonitorLayer &l) { return l.hwnd == hwnd; });
-                if (it != m_layers.end()) {
-                    m_dragOffset.x = m_dragDownPt.x - it->anchorPos.x;
-                    m_dragOffset.y = m_dragDownPt.y - it->anchorPos.y;
-                    m_dragging     = true;
-                }
-            }
-            return 0;
-        }
-
         if (m_dragging && ((wp & MK_LBUTTON) != 0u)) {
             POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ClientToScreen(hwnd, &pt);
@@ -1364,23 +1350,12 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         return 0;
 
     case WM_LBUTTONUP:
-        if (m_dragPending) {
-            // 普通模式：按住 Ctrl 点一下但不拖 → 既不移动也不切换。
-            m_dragPending = false;
-            ReleaseCapture();
-            return 0;
-        }
+        if (!m_editMode) { return DefWindowProcW(hwnd, msg, wp, lp); }
         if (m_dragging) {
-            bool normalMove = !m_editMode;
             m_dragging = false;
             ReleaseCapture();
-            if (m_pCfg != nullptr) {
-                m_pCfg->positionPreset = PositionPreset::Custom;
-                if (normalMove) { m_pCfg->SaveToIni(); } // 普通模式 Ctrl 拖拽结束即保存新位置
-            }
-            return 0;
+            if (m_pCfg != nullptr) { m_pCfg->positionPreset = PositionPreset::Custom; }
         }
-        if (!m_editMode) { return DefWindowProcW(hwnd, msg, wp, lp); }
         return 0;
 
     case WM_LBUTTONDBLCLK:
