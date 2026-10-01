@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "core/VirtualDesktopSwitcher.h"
 #include "util/DrawingTextSTB.h"
 #include "util/Log.h"
 #include "util/Utils.h"
@@ -1256,17 +1257,8 @@ bool DesktopIndicator::HandleDragStart(HWND hwnd, LPARAM lp) {
     return true;
 }
 
-// 判断“点击图标切换桌面”当前是否应生效。复用拖拽切换模式 (dragSwitchMode)：
-// Always 始终生效；Never 不生效；Alt/Ctrl 需在按下对应按键时点击才生效。
 bool DesktopIndicator::IsClickSwitchActive() const {
-    if (m_pCfg == nullptr) { return false; }
-    switch (m_pCfg->dragSwitchMode) {
-    case DragSwitchMode::Always: return true;
-    case DragSwitchMode::Never:  return false;
-    case DragSwitchMode::Alt:    return (GetAsyncKeyState(VK_MENU) & 0x8000u) != 0;
-    case DragSwitchMode::Ctrl:   return (GetAsyncKeyState(VK_CONTROL) & 0x8000u) != 0;
-    default: return false;
-    }
+    return VirtualDesktopSwitcher::IsModMaskActive();
 }
 
 bool DesktopIndicator::HitTestClickSwitch(POINT screenPt, int &outIndex) const {
