@@ -51,7 +51,7 @@ To build from source, see [Building from Source](#building-from-source) below.
   - Configure **tray icon** mode (default icon / desktop number) and number **color**
   - Toggle **cross-monitor focus**, auto-start, and run as administrator
 - Double-click the tray icon to quickly **show/hide the indicator**
-- The tray menu's "Drag Switch Mode" setting controls window-drag switching only
+- Left-click the indicator symbol to switch to the specified virtual desktop
 - hold down ctral and mouse wheel to adjust the indicator symbol size
 
 ## 📝 INI Configuration

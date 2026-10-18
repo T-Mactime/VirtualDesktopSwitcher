@@ -50,17 +50,6 @@ HWND FindTopWindowOnMonitor(HMONITOR hMon) {
     return ctx.foundWindow;
 }
 
-uint8_t GetHeldModifierMask(bool altDown = false) {
-    const bool alt   = altDown || (static_cast<UINT>(GetAsyncKeyState(VK_MENU)) & 0x8000u) != 0;
-    const bool ctrl  = (static_cast<UINT>(GetAsyncKeyState(VK_CONTROL)) & 0x8000u) != 0;
-    const bool shift = (static_cast<UINT>(GetAsyncKeyState(VK_SHIFT)) & 0x8000u) != 0;
-    const bool win   = (static_cast<UINT>(GetAsyncKeyState(VK_LWIN)) & 0x8000u) != 0
-                       || (static_cast<UINT>(GetAsyncKeyState(VK_RWIN)) & 0x8000u) != 0;
-
-    return static_cast<uint8_t>((alt ? ModMask::Alt : 0u) | (ctrl ? ModMask::Ctrl : 0u)
-                                | (shift ? ModMask::Shift : 0u) | (win ? ModMask::Win : 0u));
-}
-
 } // namespace
 
 VirtualDesktopSwitcher           *VirtualDesktopSwitcher::s_active            = nullptr;
@@ -79,11 +68,6 @@ VirtualDesktopSwitcher::~VirtualDesktopSwitcher() {
     UninstallHook();
 }
 
-bool VirtualDesktopSwitcher::IsModMaskActive() {
-    const uint8_t held = GetHeldModifierMask();
-    return held != 0 && held == s_modMask;
-}
-
 LRESULT CALLBACK VirtualDesktopSwitcher::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode != HC_ACTION || s_active == nullptr) {
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -95,7 +79,12 @@ LRESULT CALLBACK VirtualDesktopSwitcher::LowLevelKeyboardProc(int nCode, WPARAM 
 
     const auto *pKeyboard = LParamToPtr<const KBDLLHOOKSTRUCT>(lParam);
 
-    uint8_t held  = GetHeldModifierMask((pKeyboard->flags & LLKHF_ALTDOWN) != 0);
+    const bool alt   = (pKeyboard->flags & LLKHF_ALTDOWN) != 0 || (static_cast<UINT>(GetAsyncKeyState(VK_MENU)) & 0x8000u) != 0;
+    const bool ctrl  = (static_cast<UINT>(GetAsyncKeyState(VK_CONTROL)) & 0x8000u) != 0;
+    const bool shift = (static_cast<UINT>(GetAsyncKeyState(VK_SHIFT)) & 0x8000u) != 0;
+    const bool win   = (static_cast<UINT>(GetAsyncKeyState(VK_LWIN)) & 0x8000u) != 0 || (static_cast<UINT>(GetAsyncKeyState(VK_RWIN)) & 0x8000u) != 0;
+
+    uint8_t held  = (alt ? ModMask::Alt : 0u) | (ctrl ? ModMask::Ctrl : 0u) | (shift ? ModMask::Shift : 0u) | (win ? ModMask::Win : 0u);
     bool    match = held != 0 && held == s_modMask;
 
     if (match) {
