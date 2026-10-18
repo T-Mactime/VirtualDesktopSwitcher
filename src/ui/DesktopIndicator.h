@@ -114,8 +114,10 @@ private:
     int                            m_desktopCount   = 0;
     int                            m_currentDesktop = 0;
     std::array<bool, kMaxDesktops> m_emptyDesktops{};
-    bool                           m_editMode   = false;
-    bool                           m_dragging   = false;
+    bool                           m_editMode      = false;
+    bool                           m_dragging      = false;
+    bool                           m_leftCtrlHeld = false;
+    bool                           m_rightCtrlHeld = false;
     POINT                          m_dragOffset = {.x = 0, .y = 0};
     std::function<void(int)>       m_scrollSwitchFn;
     bool                           m_draggingWindow    = false;
@@ -141,11 +143,11 @@ private:
     void               RebuildToPreset(PositionPreset preset);
     void               MoveByDelta(int dx, int dy);
     void               EnumerateMonitors(HINSTANCE hInstance);
-    void               RegisterMouseWheelInput();
+    void               RegisterRawInput();
+    void               UpdateClickThroughStyle();
     bool               HandleRawInput(HWND hwnd, LPARAM lp);
     bool               HandleDragStart(HWND hwnd, LPARAM lp);
-    [[nodiscard]] bool IsClickSwitchActive() const;
-    // 命中测试：若该屏幕点落在可切换的符号上且切换功能当前生效，则返回 true 并给出目标桌面索引。
+    // 命中测试：仅当按住 Ctrl 且屏幕点落在有效桌面符号上时返回目标索引。
     [[nodiscard]] bool HitTestClickSwitch(POINT screenPt, int &outIndex) const;
     SIZE               MeasureContent(int dpi) const;
     SIZE               MeasureName(int dpi) const;

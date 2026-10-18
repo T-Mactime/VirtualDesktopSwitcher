@@ -391,15 +391,36 @@ DesktopIndicator::~DesktopIndicator() {
     }
 }
 
-void DesktopIndicator::RegisterMouseWheelInput() {
+void DesktopIndicator::RegisterRawInput() {
     if (m_layers.empty()) { return; }
-    RAWINPUTDEVICE rid = {};
-    rid.usUsagePage    = 0x01;
-    rid.usUsage        = 0x02;
-    rid.dwFlags        = RIDEV_INPUTSINK;
-    rid.hwndTarget     = m_layers[0].hwnd;
-    if (RegisterRawInputDevices(&rid, 1, sizeof(rid)) == 0) {
+    RAWINPUTDEVICE devices[2] = {};
+    devices[0].usUsagePage = 0x01;
+    devices[0].usUsage     = 0x02;
+    devices[0].dwFlags     = RIDEV_INPUTSINK;
+    devices[0].hwndTarget  = m_layers[0].hwnd;
+    devices[1].usUsagePage = 0x01;
+    devices[1].usUsage     = 0x06;
+    devices[1].dwFlags     = RIDEV_INPUTSINK;
+    devices[1].hwndTarget  = m_layers[0].hwnd;
+    if (RegisterRawInputDevices(devices, 2, sizeof(devices[0])) == 0) {
         Log(L"[ERROR] RegisterRawInputDevices failed");
+    }
+}
+
+void DesktopIndicator::UpdateClickThroughStyle() {
+    const bool clickThrough = !m_editMode && !m_leftCtrlHeld && !m_rightCtrlHeld;
+    for (auto &l : m_layers) {
+        auto ex = static_cast<DWORD>(GetWindowLong(l.hwnd, GWL_EXSTYLE));
+        DWORD updatedEx = ex;
+        if (clickThrough) {
+            updatedEx |= WS_EX_TRANSPARENT;
+        } else {
+            updatedEx &= ~static_cast<DWORD>(WS_EX_TRANSPARENT);
+        }
+        if (updatedEx == ex) { continue; }
+        SetWindowLong(l.hwnd, GWL_EXSTYLE, static_cast<LONG>(updatedEx));
+        SetWindowPos(l.hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
     }
 }
 
@@ -432,8 +453,10 @@ bool DesktopIndicator::IsPtOnOverlay(POINT pt) const {
 }
 
 HWND DesktopIndicator::CreateMonitorWindow(HINSTANCE hInst) {
+    DWORD exStyle = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+    if (!m_editMode && !m_leftCtrlHeld && !m_rightCtrlHeld) { exStyle |= WS_EX_TRANSPARENT; }
     HWND hwnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        exStyle,
         L"DesktopIndicatorClass", L"DesktopIndicator",
         WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, hInst, this);
     if (hwnd != nullptr) {
@@ -445,6 +468,9 @@ HWND DesktopIndicator::CreateMonitorWindow(HINSTANCE hInst) {
 
 bool DesktopIndicator::Initialize(HINSTANCE hInstance) {
     if (m_pCfg == nullptr) { return false; }
+
+    m_leftCtrlHeld = (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
+    m_rightCtrlHeld = (GetAsyncKeyState(VK_RCONTROL) & 0x8000) != 0;
 
     // 1. Register window class
     WNDCLASSW wc = {};
@@ -491,8 +517,8 @@ bool DesktopIndicator::Initialize(HINSTANCE hInstance) {
     // 5. Build initial text and apply display mode
     ApplyShowMode(m_pCfg->showMode);
 
-    // 6. Register Raw Input for mouse wheel
-    RegisterMouseWheelInput();
+    // 6. Register Raw Input for mouse input
+    RegisterRawInput();
 
     return !m_layers.empty();
 }
@@ -704,14 +730,7 @@ void DesktopIndicator::ToggleEditMode() {
 void DesktopIndicator::SetEditMode(bool edit) {
     m_editMode = edit;
     if (m_pCfg != nullptr && m_editMode && !m_isTaskbarEmbedded) { m_pCfg->positionPreset = PositionPreset::Custom; }
-    for (auto &l : m_layers) {
-        auto ex = static_cast<DWORD>(GetWindowLong(l.hwnd, GWL_EXSTYLE));
-        // Keep the overlay hit-testable for direct left-click desktop switching.
-        // The transparent style prevents WM_LBUTTONDOWN from reaching this window.
-        SetWindowLong(l.hwnd, GWL_EXSTYLE, static_cast<LONG>(ex & ~static_cast<DWORD>(WS_EX_TRANSPARENT)));
-        SetWindowPos(l.hwnd, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
-    }
+    UpdateClickThroughStyle();
     if (m_editMode && !m_isTaskbarEmbedded && !m_layers.empty()) {
         SetCapture(m_layers[0].hwnd);
     } else {
@@ -797,7 +816,7 @@ void DesktopIndicator::RebuildToPreset(PositionPreset preset) {
     if (m_layers.empty()) { return; }
 
     ApplyPresetPosition(preset);
-    RegisterMouseWheelInput();
+    RegisterRawInput();
     UpdateRenderTimer();
     if (m_pCfg != nullptr && m_pCfg->autoContrast && m_pCfg->showMode != ShowMode::AlwaysHide) {
         StartBgSampleTimer();
@@ -1174,7 +1193,7 @@ void DesktopIndicator::Rebuild() {
         Render();
     }
 
-    RegisterMouseWheelInput();
+    RegisterRawInput();
     UpdateRenderTimer();
     if (m_pCfg != nullptr && m_pCfg->autoContrast && m_pCfg->showMode != ShowMode::AlwaysHide) {
         StartBgSampleTimer();
@@ -1193,26 +1212,28 @@ bool DesktopIndicator::HandleRawInput(HWND /*hwnd*/, LPARAM lp) {
         != sz) { return false; }
 
     auto *raw = reinterpret_cast<RAWINPUT *>(buf.data()); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
-    if (raw->header.dwType != RIM_TYPEMOUSE
-        || (raw->data.mouse.usButtonFlags & RI_MOUSE_WHEEL) == 0) { // NOLINT(cppcoreguidelines-pro-type-union-access)
+    if (raw->header.dwType == RIM_TYPEKEYBOARD) {
+        const RAWKEYBOARD &key = raw->data.keyboard; // NOLINT(cppcoreguidelines-pro-type-union-access)
+        const bool        down = (key.Flags & RI_KEY_BREAK) == 0;
+        if (key.VKey == VK_LCONTROL
+            || (key.VKey == VK_CONTROL && (key.Flags & RI_KEY_E0) == 0)) {
+            m_leftCtrlHeld = down;
+            UpdateClickThroughStyle();
+        } else if (key.VKey == VK_RCONTROL
+                   || (key.VKey == VK_CONTROL && (key.Flags & RI_KEY_E0) != 0)) {
+            m_rightCtrlHeld = down;
+            UpdateClickThroughStyle();
+        }
         return false;
     }
+    if (raw->header.dwType != RIM_TYPEMOUSE) { return false; }
 
-    POINT cursorPt;
-    GetCursorPos(&cursorPt);
-    bool overIndicator = false;
-    for (const auto &l : m_layers) {
-        RECT wr;
-        GetWindowRect(l.hwnd, &wr);
-        if (PtInRect(&wr, cursorPt) != 0) {
-            overIndicator = true;
-            break;
-        }
-    }
-
-    if (!overIndicator) { return false; }
+    const USHORT buttonFlags = raw->data.mouse.usButtonFlags; // NOLINT(cppcoreguidelines-pro-type-union-access)
+    if ((buttonFlags & RI_MOUSE_WHEEL) == 0) { return false; }
 
     auto delta = static_cast<int16_t>(raw->data.mouse.usButtonData); // NOLINT(cppcoreguidelines-pro-type-union-access)
+    POINT cursorPt;
+    if (!GetCursorPos(&cursorPt) || !IsPtOnOverlay(cursorPt)) { return false; }
 
     // 编辑模式或按住 Ctrl 时，滚轮用于缩放字号（Ctrl+滚轮在普通模式也可缩放）。
     bool ctrlHeld = (static_cast<UINT>(GetAsyncKeyState(VK_CONTROL)) & 0x8000u) != 0;
@@ -1256,21 +1277,8 @@ bool DesktopIndicator::HandleDragStart(HWND hwnd, LPARAM lp) {
     return true;
 }
 
-// 判断“点击图标切换桌面”当前是否应生效。复用拖拽切换模式 (dragSwitchMode)：
-// Always 始终生效；Never 不生效；Alt/Ctrl 需在按下对应按键时点击才生效。
-bool DesktopIndicator::IsClickSwitchActive() const {
-    if (m_pCfg == nullptr) { return false; }
-    switch (m_pCfg->dragSwitchMode) {
-    case DragSwitchMode::Always: return true;
-    case DragSwitchMode::Never:  return false;
-    case DragSwitchMode::Alt:    return (GetAsyncKeyState(VK_MENU) & 0x8000u) != 0;
-    case DragSwitchMode::Ctrl:   return (GetAsyncKeyState(VK_CONTROL) & 0x8000u) != 0;
-    default: return false;
-    }
-}
-
 bool DesktopIndicator::HitTestClickSwitch(POINT screenPt, int &outIndex) const {
-    if (!IsClickSwitchActive() || !m_scrollSwitchFn || m_desktopCount <= 0) { return false; }
+    if ((!m_leftCtrlHeld && !m_rightCtrlHeld) || !m_scrollSwitchFn || m_desktopCount <= 0) { return false; }
     if (!GetSymbolIndexAt(screenPt, outIndex)) { return false; }
     return outIndex >= 0 && outIndex < m_desktopCount;
 }
@@ -1293,19 +1301,6 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         return 0;
     }
 
-    case WM_NCHITTEST: {
-        LRESULT hit = DefWindowProcW(hwnd, msg, wp, lp);
-        // 编辑模式或默认命中结果不是客户区：不干预（编辑模式需可拖动定位）。
-        if (m_editMode || hit != HTCLIENT) { return hit; }
-        // WM_NCHITTEST 的 lParam 携带光标屏幕坐标。
-        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-        int   idx = -1;
-        // 仅在这次点击会真实切换桌面时拦截；否则返回 HTTRANSPARENT，
-        // 让该点击穿透到下层窗口（例如需要组合键切换时，单纯点击直接穿透）。
-        if (!HitTestClickSwitch(pt, idx)) { return HTTRANSPARENT; }
-        return hit;
-    }
-
     case WM_INPUT:
         if (HandleRawInput(hwnd, lp)) { return 0; }
         break;
@@ -1313,15 +1308,14 @@ LRESULT DesktopIndicator::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     case WM_LBUTTONDOWN: {
         if (m_editMode) {
             if (HandleDragStart(hwnd, lp)) { return 0; }
-            return DefWindowProcW(hwnd, msg, wp, lp);
-        }
-
-        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-        ClientToScreen(hwnd, &pt);
-        int idx = -1;
-        if (HitTestClickSwitch(pt, idx)) {
-            m_scrollSwitchFn(idx);
-            return 0;
+        } else {
+            POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            ClientToScreen(hwnd, &pt);
+            int idx = -1;
+            if (HitTestClickSwitch(pt, idx)) {
+                m_scrollSwitchFn(idx);
+                return 0;
+            }
         }
         return DefWindowProcW(hwnd, msg, wp, lp);
     }
