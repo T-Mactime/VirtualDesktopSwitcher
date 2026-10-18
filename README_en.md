@@ -51,7 +51,7 @@ To build from source, see [Building from Source](#building-from-source) below.
   - Configure **tray icon** mode (default icon / desktop number) and number **color**
   - Toggle **cross-monitor focus**, auto-start, and run as administrator
 - Double-click the tray icon to quickly **show/hide the indicator**
-- Left-click the indicator symbol to switch to the specified virtual desktop
+- Hold **Ctrl** and left-click an indicator symbol to switch to that virtual desktop; the indicator does not pass clicks through while Ctrl is held, and clicks pass through when it is not held
 - hold down ctral and mouse wheel to adjust the indicator symbol size
 
 ## 📝 INI Configuration
